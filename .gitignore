@@ -1,0 +1,5 @@
+node_modules/
+data
+registry.env
+conf/config.yaml
+tsconfig.tsbuildinfo

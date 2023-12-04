@@ -1,0 +1,21 @@
+{
+    "compilerOptions": {
+        "rootDir": "./src",
+        "outDir": "./lib",
+        "target": "esnext",
+        "module": "commonjs",
+        "declaration": true,
+        "noImplicitAny": false,
+        "strict": true,
+        "allowSyntheticDefaultImports": true,
+        "esModuleInterop": true,
+        "preserveSymlinks": true,
+        "composite": true,
+        "incremental": true,
+        "declarationMap": true,
+        "types": ["node", "jest"],
+        "strictNullChecks": true
+    },
+    "include": ["src/*.ts", "types/*.d.ts"],
+    "exclude": ["**/lib", "node_modules", "**/node_modules", "**/coverage", "**/*.spec.ts", "**/test", "**/__tests__", "**/*.test.ts"]
+}
