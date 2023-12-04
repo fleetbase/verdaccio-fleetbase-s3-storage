@@ -303,9 +303,9 @@ export default class S3Database implements IPluginStorage<S3Config> {
         }
     }
 
-    public async getAllComposerJson(): Promise<{ [packageName: string]: any }> {
+    public async getAllComposerJson(): Promise<{ packages: { [packageName: string]: any } }> {
         this.logger.debug('s3: [getAllComposerJson]');
-        const composerJsons: { [packageName: string]: any } = {};
+        const composerPackages: { [packageName: string]: any } = {};
 
         // Use the new getAsync method
         const packages = await this.getAsync();
@@ -322,24 +322,27 @@ export default class S3Database implements IPluginStorage<S3Config> {
                     const composerPackageName = composerJson['name'];
                     const version = composerJson['version'];
 
-                    // add engine
-                    (composerJson as any)['engine'] = packageName;
-
                     // add dist
-                    (composerJson as any)['dist'] = {
+                    const dist = {
                         url: this._getPackageTarballUrl(packageName, version),
                         type: 'tar',
                     };
 
-                    // debug
-                    this._getPackageTarballUrl(packageName, version);
+                    // Initialize package versions object if not already done
+                    if (!composerPackages[composerPackageName]) {
+                        composerPackages[composerPackageName] = {};
+                    }
 
-                    composerJsons[composerPackageName] = composerJson;
+                    // Add version information
+                    composerPackages[composerPackageName][version] = {
+                        ...composerJson,
+                        dist,
+                    };
                 }
             })
         );
 
-        return composerJsons;
+        return { packages: composerPackages };
     }
 
     private _getPackagePath(packageName: string, ...additionalPaths: string[]): string {
@@ -373,11 +376,14 @@ export default class S3Database implements IPluginStorage<S3Config> {
         const tarballPath = this._getPackagePath(packageName, fileName);
         const signedUrlExpireSeconds = 60 * 5;
 
-        const url = this.s3.getSignedUrl('getObject', {
+        let url = this.s3.getSignedUrl('getObject', {
             Bucket: this.config.bucket,
             Key: tarballPath,
             Expires: signedUrlExpireSeconds,
         });
+
+        // temporarily modify url minio -> localhost
+        url = url.replace('minio:', 'localhost:');
 
         return url;
     }
