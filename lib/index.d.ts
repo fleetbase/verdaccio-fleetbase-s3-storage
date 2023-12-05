@@ -24,6 +24,7 @@ export default class S3Database implements IPluginStorage<S3Config> {
     readTokens(filter: TokenFilter): Promise<Token[]>;
     getComposerJson(packageName: string): Promise<string | null>;
     getExtensionJson(packageName: string): Promise<string | null>;
+    getAllExtensionJson(): Promise<any[]>;
     getAllComposerJson(): Promise<{
         packages: {
             [packageName: string]: any;

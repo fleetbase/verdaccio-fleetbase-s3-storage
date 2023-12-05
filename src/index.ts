@@ -303,6 +303,35 @@ export default class S3Database implements IPluginStorage<S3Config> {
         }
     }
 
+    public async getAllExtensionJson(): Promise<any[]> {
+        this.logger.debug('s3: [getAllExtensionJson]');
+        const extensions = [];
+
+        try {
+            const packages = await this.getAsync();
+            this.logger.debug({ packages }, 's3: [getAllExtensionJson] found packages: @{packages}');
+
+            await Promise.all(
+                packages.map(async (packageName) => {
+                    try {
+                        const extensionJson = await this.getExtensionJson(packageName);
+
+                        if (extensionJson && typeof extensionJson === 'object') {
+                            extensions.push(extensionJson);
+                        }
+                    } catch (error) {
+                        this.logger.error(`Error fetching extension JSON for package ${packageName}: ${error}`);
+                    }
+                })
+            );
+        } catch (error) {
+            this.logger.error(`Error in getAllExtensionJson: ${error}`);
+            throw error;
+        }
+
+        return extensions;
+    }
+
     public async getAllComposerJson(): Promise<{ packages: { [packageName: string]: any } }> {
         this.logger.debug('s3: [getAllComposerJson]');
         const composerPackages: { [packageName: string]: any } = {};
@@ -316,7 +345,6 @@ export default class S3Database implements IPluginStorage<S3Config> {
         await Promise.all(
             packages.map(async (packageName) => {
                 const composerJson = await this.getComposerJson(packageName);
-                this.logger.debug({ type: typeof composerJson, isArray: Array.isArray(composerJson) }, 's3: [getAllComposerJson] composerJson type: @{type} - array? @{isArray}');
 
                 if (composerJson && typeof composerJson === 'object') {
                     const composerPackageName = composerJson['name'];
