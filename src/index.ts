@@ -207,6 +207,7 @@ export default class S3Database implements IPluginStorage<S3Config> {
                         Key: `${keyPrefix}verdaccio-s3-db.json`,
                     },
                     (err, response) => {
+                        this.logger.debug({ err: JSON.stringify(err, null, 4), response: JSON.stringify(response, null, 4) }, 's3: [_getData] Err: @{err} Response: @{response}');
                         if (err) {
                             const s3Err: VerdaccioError = convertS3Error(err);
                             this.logger.error({ err: s3Err.message }, 's3: [_getData] err: @{err}');
@@ -347,8 +348,9 @@ export default class S3Database implements IPluginStorage<S3Config> {
                 const composerJson = await this.getComposerJson(packageName);
 
                 if (composerJson && typeof composerJson === 'object') {
-                    const composerPackageName = composerJson['name'];
-                    const version = composerJson['version'];
+                    const safeComposerJson = composerJson as { [key: string]: any };
+                    const composerPackageName = safeComposerJson['name'];
+                    const version = safeComposerJson['version'];
 
                     // add dist
                     const dist = {
@@ -363,7 +365,7 @@ export default class S3Database implements IPluginStorage<S3Config> {
 
                     // Add version information
                     composerPackages[composerPackageName][version] = {
-                        ...composerJson,
+                        ...safeComposerJson,
                         dist,
                     };
                 }
