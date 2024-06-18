@@ -59,6 +59,10 @@ export default class S3PackageManager implements ILocalPackageManager {
         }
     }
 
+    public safePackageName(packageName: string): string {
+        return packageName.replace(/[@\/]/g, '-').replace(/^-/, '');
+    }
+
     public getPackagePath(): string {
         return this.packagePath ? this.packagePath : '';
     }
@@ -210,117 +214,103 @@ export default class S3PackageManager implements ILocalPackageManager {
     }
 
     public writeTarball(name: string): UploadTarball {
-        this.logger.debug({ name, packageName: this.packageName }, 's3: [S3PackageManager writeTarball init] name @{name}/@{packageName}');
         const uploadStream = new UploadTarball({});
+        const tempFilePath = path.join(os.tmpdir(), `${this.safePackageName(this.packageName)}-temp-tarball.tar.gz`);
+        const writeStream = fs.createWriteStream(tempFilePath);
 
-        let streamEnded = 0;
-        uploadStream.on('end', () => {
-            this.logger.debug({ name, packageName: this.packageName }, 's3: [S3PackageManager writeTarball event: end] name @{name}/@{packageName}');
-            streamEnded = 1;
+        uploadStream.pipe(writeStream);
+
+        writeStream.on('finish', async () => {
+            try {
+                await this.extractAndUploadJSONFiles(tempFilePath);
+                await this.uploadTarballToS3(tempFilePath, name);
+                uploadStream.emit('success');
+                this.logger.debug({ tempFilePath }, `s3: [S3PackageManager writeTarball] Tarball stream finished writing and was successfully processed: ${tempFilePath}`);
+            } catch (error: unknown) {
+                if (error instanceof Error) {
+                    this.logger.error({ tempFilePath, error: error.message }, `s3: [S3PackageManager writeTarball] Error processing tarball at ${tempFilePath}: ${error.message}`);
+                    uploadStream.emit('error', error);
+                } else {
+                    this.logger.error({ tempFilePath }, `s3: [S3PackageManager writeTarball] An unexpected error occurred processing tarball at ${tempFilePath}`);
+                    uploadStream.emit('error', new Error('Unknown error occurred'));
+                }
+            } finally {
+                fs.unlink(tempFilePath, (err) => {
+                    if (err) {
+                        this.logger.error({ tempFilePath, error: err.message }, `s3: [S3PackageManager writeTarball] Error deleting temporary file ${tempFilePath}: ${err.message}`);
+                    } else {
+                        this.logger.debug({ tempFilePath }, `s3: [S3PackageManager writeTarball] Temporary file deleted successfully: ${tempFilePath}`);
+                    }
+                });
+            }
         });
 
-        // Handle uploading of fleetbase extension files
-        this.uploadFleetbaseExtensionFromTarballStream(uploadStream);
-
-        const baseS3Params = {
-            Bucket: this.config.bucket,
-            Key: `${this.packagePath}/${name}`,
-        };
-
-        // NOTE: I'm using listObjectVersions so I don't have to download the full object with getObject.
-        // Preferably, I'd use getObjectMetadata or getDetails when it's available in the node sdk
-        // TODO: convert to headObject
-        this.s3.headObject(
-            {
-                Bucket: this.config.bucket,
-                Key: `${this.packagePath}/${name}`,
-            },
-            (err) => {
-                if (err) {
-                    const convertedErr = convertS3Error(err);
-                    this.logger.error({ error: convertedErr.message }, 's3: [S3PackageManager writeTarball headObject] @{error}');
-
-                    if (is404Error(convertedErr) === false) {
-                        this.logger.error(
-                            {
-                                error: convertedErr.message,
-                            },
-                            's3: [S3PackageManager writeTarball headObject] non a 404 emit error: @{error}'
-                        );
-
-                        uploadStream.emit('error', convertedErr);
-                    } else {
-                        this.logger.debug('s3: [S3PackageManager writeTarball managedUpload] init stream');
-                        const managedUpload = this.s3.upload(Object.assign({}, baseS3Params, { Body: uploadStream, ACL: this.tarballACL }));
-                        // NOTE: there's a managedUpload.promise, but it doesn't seem to work
-                        const promise = new Promise((resolve): void => {
-                            this.logger.debug('s3: [S3PackageManager writeTarball managedUpload] send');
-                            managedUpload.send((err, data) => {
-                                if (err) {
-                                    const error: HttpError = convertS3Error(err);
-                                    this.logger.error({ error: error.message }, 's3: [S3PackageManager writeTarball managedUpload send] emit error @{error}');
-
-                                    uploadStream.emit('error', error);
-                                } else {
-                                    this.logger.trace({ data }, 's3: [S3PackageManager writeTarball managedUpload send] response @{data}');
-
-                                    resolve(undefined);
-                                }
-                            });
-
-                            this.logger.debug({ name }, 's3: [S3PackageManager writeTarball uploadStream] emit open @{name}');
-                            uploadStream.emit('open');
-                        });
-
-                        uploadStream.done = (): void => {
-                            const onEnd = async (): Promise<void> => {
-                                try {
-                                    await promise;
-
-                                    this.logger.debug('s3: [S3PackageManager writeTarball uploadStream done] emit success');
-                                    uploadStream.emit('success');
-                                } catch (err) {
-                                    // already emitted in the promise above, necessary because of some issues
-                                    // with promises in jest
-                                    this.logger.error({ err }, 's3: [S3PackageManager writeTarball uploadStream done] error @{err}');
-                                }
-                            };
-
-                            if (streamEnded) {
-                                this.logger.trace({ name }, 's3: [S3PackageManager writeTarball uploadStream] streamEnded true @{name}');
-                                onEnd();
-                            } else {
-                                this.logger.trace({ name }, 's3: [S3PackageManager writeTarball uploadStream] streamEnded false emit end @{name}');
-                                uploadStream.on('end', onEnd);
-                            }
-                        };
-
-                        uploadStream.abort = (): void => {
-                            this.logger.debug('s3: [S3PackageManager writeTarball uploadStream abort] init');
-                            try {
-                                this.logger.debug('s3: [S3PackageManager writeTarball managedUpload abort]');
-                                managedUpload.abort();
-                            } catch (err: any) {
-                                const error: HttpError = convertS3Error(err);
-                                uploadStream.emit('error', error);
-
-                                this.logger.error({ error }, 's3: [S3PackageManager writeTarball uploadStream error] emit error @{error}');
-                            } finally {
-                                this.logger.debug({ name, baseS3Params }, 's3: [S3PackageManager writeTarball uploadStream abort] s3.deleteObject @{name}/@{baseS3Params}');
-
-                                this.s3.deleteObject(baseS3Params);
-                            }
-                        };
-                    }
-                } else {
-                    this.logger.debug({ name }, 's3: [S3PackageManager writeTarball headObject] emit error @{name} 409');
-
-                    uploadStream.emit('error', create409Error());
-                }
-            }
-        );
+        writeStream.on('error', (error: Error) => {
+            this.logger.error({ tempFilePath, error: error.message }, `s3: [S3PackageManager writeTarball] Error writing to temporary file ${tempFilePath}: ${error.message}`);
+            uploadStream.emit('error', error);
+        });
 
         return uploadStream;
+    }
+
+    public async extractAndUploadJSONFiles(tempFilePath: string) {
+        this.logger.debug({ tempFilePath }, 's3: [S3PackageManager extractAndUploadJSONFiles] Starting extraction of JSON files from tarball at: @{tempFilePath}');
+        const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'extract-'));
+        this.logger.debug({ tempDir }, 's3: [S3PackageManager extractAndUploadJSONFiles] Temporary directory created for extraction at: @{tempDir}');
+
+        try {
+            await tar.extract({
+                file: tempFilePath,
+                cwd: tempDir,
+                gzip: true,
+            });
+            this.logger.debug({ tempFilePath, tempDir }, 's3: [S3PackageManager extractAndUploadJSONFiles] Tarball extracted successfully from @{tempFilePath} to @{tempDir}');
+
+            const composerPath = path.join(tempDir, 'package', composerFileName);
+            const extensionPath = path.join(tempDir, 'package', flbFileName);
+
+            const composerJsonExists = fs.existsSync(composerPath);
+            const extensionJsonExists = fs.existsSync(extensionPath);
+            this.logger.debug({ composerPath }, `s3: [S3PackageManager extractAndUploadJSONFiles] Composer JSON file exists: ${composerJsonExists} at @{composerPath}`);
+            this.logger.debug({ extensionPath }, `s3: [S3PackageManager extractAndUploadJSONFiles] Extension JSON file exists: ${extensionJsonExists} at @{extensionPath}`);
+
+            const composerJsonContent = composerJsonExists ? await fs.promises.readFile(composerPath, 'utf8') : null;
+            const extensionJsonContent = extensionJsonExists ? await fs.promises.readFile(extensionPath, 'utf8') : null;
+
+            if (composerJsonContent) {
+                this.logger.debug({ composerPath }, 's3: [S3PackageManager extractAndUploadJSONFiles] Uploading composer.json to S3 from @{composerPath}');
+                await this.uploadExtensionJson(this.config.bucket, this.packagePath, composerFileName, composerJsonContent);
+                this.logger.debug({ bucket: this.config.bucket, path: `${this.packagePath}/${composerFileName}` }, 'Composer.json uploaded successfully to @{bucket}/@{path}');
+            } else {
+                this.logger.debug({ composerPath }, 's3: [S3PackageManager extractAndUploadJSONFiles] Composer.json not found or empty at @{composerPath}');
+            }
+
+            if (extensionJsonContent) {
+                this.logger.debug({ extensionPath }, 's3: [S3PackageManager extractAndUploadJSONFiles] Uploading extension.json to S3 from @{extensionPath}');
+                await this.uploadExtensionJson(this.config.bucket, this.packagePath, flbFileName, extensionJsonContent);
+                this.logger.debug({ bucket: this.config.bucket, path: `${this.packagePath}/${flbFileName}` }, 'Extension.json uploaded successfully to @{bucket}/@{path}');
+            } else {
+                this.logger.debug({ extensionPath }, 's3: [S3PackageManager extractAndUploadJSONFiles] Extension.json not found or empty at @{extensionPath}');
+            }
+
+            return { composerJsonContent, extensionJsonContent };
+        } finally {
+            // Clean up the extraction directory
+            await fs.promises.rm(tempDir, { recursive: true });
+            this.logger.debug({ tempDir }, 's3: [S3PackageManager extractAndUploadJSONFiles] Cleaned up extraction directory at @{tempDir}');
+        }
+    }
+
+    public async uploadTarballToS3(tempFilePath: string, name: string) {
+        const params = {
+            Bucket: this.config.bucket,
+            Key: `${this.packagePath}/${name}`,
+            Body: fs.createReadStream(tempFilePath),
+            ACL: this.tarballACL,
+        };
+
+        await this.s3.upload(params).promise();
+        this.logger.debug({ name },'s3: [S3PackageManager uploadTarballToS3] Tarball uploaded successfully to S3: @{name}');
     }
 
     public readTarball(name: string): ReadTarball {
@@ -388,107 +378,6 @@ export default class S3PackageManager implements ILocalPackageManager {
         return readTarballStream;
     }
 
-    public uploadFleetbaseExtensionFromTarballStream(uploadStream: UploadTarball) {
-        const tempDir = os.tmpdir();
-        const safePackageName = this.packageName.replace(/[@\/]/g, '-').replace(/^-/, '');
-        const tempFilePath = path.join(tempDir, `${safePackageName}-temp-tarball.tar.gz`);
-
-        this.logger.debug({ tempFilePath }, 's3: [S3PackageManager uploadFleetbaseExtensionFromTarballStream] Creating temporary file for tarball: @{tempFilePath}');
-
-        const writeStream = fs.createWriteStream(tempFilePath);
-        uploadStream.pipe(writeStream);
-
-        writeStream.on('finish', async () => {
-            this.logger.debug({ tempFilePath }, 's3: [S3PackageManager uploadFleetbaseExtensionFromTarballStream] Tarball stream finished writing to temporary file');
-
-            try {
-                const { composerJsonContent, extensionJsonContent } = await this.checkTarballForExtensionJson(tempFilePath);
-
-                if (composerJsonContent) {
-                    this.logger.debug('s3: [S3PackageManager uploadFleetbaseExtensionFromTarballStream] Uploading composer.json');
-                    await this.uploadExtensionJson(this.config.bucket, this.packagePath, composerFileName, composerJsonContent);
-                } else {
-                    this.logger.debug('s3: [S3PackageManager uploadFleetbaseExtensionFromTarballStream] composer.json not found in tarball');
-                }
-
-                if (extensionJsonContent) {
-                    this.logger.debug('s3: [S3PackageManager uploadFleetbaseExtensionFromTarballStream] Uploading extension.json');
-                    await this.uploadExtensionJson(this.config.bucket, this.packagePath, flbFileName, extensionJsonContent);
-                } else {
-                    this.logger.debug('s3: [S3PackageManager uploadFleetbaseExtensionFromTarballStream] extension.json not found in tarball');
-                }
-            } catch (error) {
-                if (error instanceof Error) {
-                    this.logger.error({ error: error.message }, 's3: [S3PackageManager uploadFleetbaseExtensionFromTarballStream] error @{error}');
-                }
-            } finally {
-                fs.unlink(tempFilePath, (error) => {
-                    if (error instanceof Error) {
-                        this.logger.error({ error: error.message }, 's3: [S3PackageManager uploadFleetbaseExtensionFromTarballStream] error @{error}');
-                    } else {
-                        this.logger.debug({ tempFilePath }, 's3: [S3PackageManager uploadFleetbaseExtensionFromTarballStream] Temporary file deleted');
-                    }
-                });
-            }
-        });
-
-        writeStream.on('error', (error) => {
-            if (error instanceof Error) {
-                this.logger.error({ error: error.message }, 's3: [S3PackageManager uploadFleetbaseExtensionFromTarballStream] error @{error}');
-            }
-        });
-    }
-
-    public async checkTarballForExtensionJson(tarballPath) {
-        try {
-            // Create a temporary directory to extract files
-            const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'extract-'));
-            this.logger.debug({ tarballPath, tempDir }, 's3: [S3PackageManager checkTarballForExtensionJson] Extracting tarball to temporary directory: @{tempDir}');
-            await tar.extract({
-                file: tarballPath,
-                cwd: tempDir,
-                // Filter for only the files we're interested in
-                filter: (path) => path.endsWith(composerFileName) || path.endsWith(flbFileName),
-            });
-
-            let composerJsonContent: string | null = null;
-            let extensionJsonContent: string | null = null;
-
-            // Define paths to search
-            const rootComposerJsonPath = path.join(tempDir, composerFileName);
-            const packageComposerJsonPath = path.join(tempDir, 'package', composerFileName);
-            const rootExtensionJsonPath = path.join(tempDir, flbFileName);
-            const packageExtensionJsonPath = path.join(tempDir, 'package', flbFileName);
-
-            // Check if the files exist in either location and read them
-            const composerJsonPath = fs.existsSync(rootComposerJsonPath) ? rootComposerJsonPath : packageComposerJsonPath;
-            if (fs.existsSync(composerJsonPath)) {
-                composerJsonContent = await fs.promises.readFile(composerJsonPath, 'utf8');
-                this.logger.debug({ composerJsonPath }, 's3: [S3PackageManager checkTarballForExtensionJson] Found and read composer.json');
-            } else {
-                this.logger.debug({ composerJsonPath }, 's3: [S3PackageManager checkTarballForExtensionJson] composer.json not found');
-            }
-
-            const extensionJsonPath = fs.existsSync(rootExtensionJsonPath) ? rootExtensionJsonPath : packageExtensionJsonPath;
-            if (fs.existsSync(extensionJsonPath)) {
-                extensionJsonContent = await fs.promises.readFile(extensionJsonPath, 'utf8');
-                this.logger.debug({ extensionJsonPath }, 's3: [S3PackageManager checkTarballForExtensionJson] Found and read extension.json');
-            } else {
-                this.logger.debug({ extensionJsonPath }, 's3: [S3PackageManager checkTarballForExtensionJson] extension.json not found');
-            }
-
-            // Clean up the temporary directory
-            await fs.promises.rmdir(tempDir, { recursive: true });
-
-            return { composerJsonContent, extensionJsonContent };
-        } catch (error) {
-            if (error instanceof Error) {
-                this.logger.error({ error: error.message }, 's3: [S3PackageManager checkTarballForExtensionJson] error @{error}');
-            }
-            throw error;
-        }
-    }
-
     public async uploadExtensionJson(bucket, packagePath, fileName, fileContent) {
         this.logger.debug({ bucket, packagePath, fileName }, 's3: [S3PackageManager uploadExtensionJson] Preparing to upload file: @{fileName} to bucket: @{bucket}');
 
@@ -501,7 +390,7 @@ export default class S3PackageManager implements ILocalPackageManager {
                 })
                 .promise();
 
-            this.logger.debug({ bucket, packagePath, fileName }, 's3: [S3PackageManager uploadExtensionJson] File uploaded successfully to @{packagePath}');
+            this.logger.debug({ bucket, packagePath, fileName }, 's3: [S3PackageManager uploadExtensionJson] File uploaded successfully to @{packagePath}/@{fileName}');
         } catch (error) {
             if (error instanceof Error) {
                 this.logger.error({ error: error.message }, 's3: [S3PackageManager uploadExtensionJson] error @{error}');

@@ -6,7 +6,7 @@ import { S3Config } from './config';
 import S3PackageManager from './s3PackageManager';
 import { convertS3Error, is404Error } from './s3Errors';
 import addTrailingSlash from './addTrailingSlash';
-import setConfigValue from './setConfigValue';
+import getConfigValue from './getConfigValue';
 
 export { S3Config };
 export default class S3Database implements IPluginStorage<S3Config> {
@@ -27,20 +27,36 @@ export default class S3Database implements IPluginStorage<S3Config> {
             throw new Error('s3 storage requires a bucket');
         }
 
-        this.config.bucket = setConfigValue(this.config.bucket);
-        this.config.keyPrefix = setConfigValue(this.config.keyPrefix);
-        this.config.endpoint = setConfigValue(this.config.endpoint);
-        this.config.region = setConfigValue(this.config.region);
-        this.config.accessKeyId = setConfigValue(this.config.accessKeyId);
-        this.config.secretAccessKey = setConfigValue(this.config.secretAccessKey);
-        this.config.sessionToken = setConfigValue(this.config.sessionToken);
+        this.logger.debug(
+            {
+                config: JSON.stringify(
+                    {
+                        bucket: getConfigValue('AWS_BUCKET', this.config),
+                        endpoint: getConfigValue('AWS_ENDPOINT', this.config),
+                        region: getConfigValue('AWS_REGION', this.config),
+                        accessKeyId: getConfigValue('AWS_ACCESS_KEY_ID', this.config),
+                        secretAccessKey: getConfigValue('AWS_SECRET_ACCESS_KEY', this.config),
+                    },
+                    null,
+                    4
+                ),
+            },
+            'S3 ENV/CONFIG VARS: @{config}'
+        );
+
+        this.config.bucket = getConfigValue('AWS_BUCKET', this.config);
+        this.config.keyPrefix = getConfigValue('AWS_KEY_PREFIX', this.config);
+        this.config.endpoint = getConfigValue('AWS_ENDPOINT', this.config);
+        this.config.region = getConfigValue('AWS_REGION', this.config);
+        this.config.accessKeyId = getConfigValue('AWS_ACCESS_KEY_ID', this.config);
+        this.config.secretAccessKey = getConfigValue('AWS_SECRET_ACCESS_KEY', this.config);
+        this.config.sessionToken = getConfigValue('AWS_SESSION_TOKEN', this.config);
 
         const configKeyPrefix = this.config.keyPrefix;
         this._localData = null;
         this.config.keyPrefix = addTrailingSlash(configKeyPrefix);
 
-        this.logger.debug({ config: JSON.stringify(this.config, null, 4) }, 's3: configuration: @{config}');
-
+        // this.logger.debug({ config: JSON.stringify(this.config, null, 4) }, 's3: configuration: @{config}');
         this.s3 = new S3({
             endpoint: this.config.endpoint,
             region: this.config.region,
