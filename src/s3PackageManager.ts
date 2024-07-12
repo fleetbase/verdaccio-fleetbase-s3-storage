@@ -3,15 +3,16 @@ import { UploadTarball, ReadTarball } from '@verdaccio/streams';
 import { HEADERS, HTTP_STATUS, VerdaccioError } from '@verdaccio/commons-api';
 import { Callback, Logger, Package, ILocalPackageManager, CallbackAction, ReadPackageCallback } from '@verdaccio/legacy-types';
 import { HttpError } from 'http-errors';
-import os from 'os';
-import tar from 'tar';
-import fs from 'fs';
-import path from 'path';
 
 import { is404Error, convertS3Error, create409Error } from './s3Errors';
 import { deleteKeyPrefix } from './deleteKeyPrefix';
 import { S3Config } from './config';
+import axios from 'axios';
 import addTrailingSlash from './addTrailingSlash';
+import os from 'os';
+import tar from 'tar';
+import fs from 'fs';
+import path from 'path';
 
 const pkgFileName = 'package.json';
 const composerFileName = 'composer.json';
@@ -92,6 +93,8 @@ export default class S3PackageManager implements ILocalPackageManager {
 
     private async _getData(): Promise<unknown> {
         this.logger.debug('s3: [S3PackageManager _getData init]');
+        this.logger.debug({ pkgFileName }, 's3: [S3PackageManager _getData pkgFileName] @{pkgFileName}');
+        this.logger.debug({ key: `${this.packagePath}/${pkgFileName}` }, 's3: [S3PackageManager _getData Key] @{key}');
         return await new Promise((resolve, reject): void => {
             this.s3.getObject(
                 {
@@ -310,7 +313,7 @@ export default class S3PackageManager implements ILocalPackageManager {
         };
 
         await this.s3.upload(params).promise();
-        this.logger.debug({ name },'s3: [S3PackageManager uploadTarballToS3] Tarball uploaded successfully to S3: @{name}');
+        this.logger.debug({ name }, 's3: [S3PackageManager uploadTarballToS3] Tarball uploaded successfully to S3: @{name}');
     }
 
     public readTarball(name: string): ReadTarball {
@@ -358,11 +361,39 @@ export default class S3PackageManager implements ILocalPackageManager {
             })
             .createReadStream();
 
-        readStream.on('error', (err) => {
+        readStream.on('error', async (err) => {
             const error: HttpError = convertS3Error(err as AWSError);
 
-            readTarballStream.emit('error', error);
-            this.logger.error({ error: error.message }, 's3: [S3PackageManager readTarball readTarballStream event] error @{error}');
+            this.logger.debug({ errorCode: error.code }, 'Package not found in S3, ERROR CODE: @{errorCode}');
+
+            if (error.code === 404) {
+                const npmUrl = `https://registry.npmjs.org/${this.packageName}/-/${name}`;
+                this.logger.debug({ npmUrl }, 'Package not found in S3, attempting to fetch from npm: @{npmUrl}');
+
+                try {
+                    const response = await axios({
+                        method: 'get',
+                        url: npmUrl,
+                        responseType: 'stream',
+                    });
+
+                    // Handle headers directly
+                    const contentLength = response.headers['content-length'];
+                    if (contentLength) {
+                        readTarballStream.emit(HEADERS.CONTENT_LENGTH, parseInt(contentLength, 10));
+                    }
+                    readTarballStream.emit('open');
+
+                    // Pipe the npm data to the readTarballStream
+                    response.data.pipe(readTarballStream);
+                } catch (npmError) {
+                    readTarballStream.emit('error', error);
+                    this.logger.error({ error: error.message }, 's3: [S3PackageManager readTarball readTarballStream event] error @{error}');
+                }
+            } else {
+                readTarballStream.emit('error', error);
+                this.logger.error({ error: error.message }, 's3: [S3PackageManager readTarball readTarballStream event] error @{error}');
+            }
         });
 
         this.logger.trace('s3: [S3PackageManager readTarball readTarballStream event] pipe');
