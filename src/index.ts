@@ -420,7 +420,7 @@ export default class S3Database implements IPluginStorage<S3Config> {
 
         const fileName = `${nameWithoutScope}-${version}.tgz`;
         const tarballPath = this._getPackagePath(packageName, fileName);
-        const signedUrlExpireSeconds = 60 * 5;
+        const signedUrlExpireSeconds = 60 * 30;
 
         let url = this.s3.getSignedUrl('getObject', {
             Bucket: this.config.bucket,
