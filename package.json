@@ -10,7 +10,7 @@
         "aws"
     ],
     "author": "Fleetbase Pte Ltd <hello@fleetbase.io>",
-    "license": "MIT",
+    "license": "AGPL-3.0-or-later",
     "homepage": "https://fleetbase.io",
     "repository": {
         "type": "git",
