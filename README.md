@@ -69,11 +69,11 @@ Once configured, Verdaccio will automatically begin using the configured S3 buck
 
 ## Contributing
 
-Contributions to the Fleetbase Verdaccio S3 Storage Plugin are welcome! Please refer to the project's [CONTRIBUTING.md](#CONTRIBUTING.md) for guidelines on how to make contributions.
+Contributions to the Fleetbase Verdaccio S3 Storage Plugin are welcome! Please refer to the project's [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to make contributions.
 
 ## License
 
-This project is licensed under the AGPL v3 License - see the [LICENSE.md](#LICENSE.md) file for details.
+This project is licensed under the AGPL v3 License - see the [LICENSE.md](LICENSE.md) file for details.
 
 ## Support
 
