@@ -39,19 +39,19 @@ Replace the placeholder values with your actual S3 bucket details and AWS creden
 
 The Fleetbase Verdaccio S3 Storage Plugin can also be configured using environment variables, providing a flexible way to manage configuration without hard-coding sensitive information directly into the `config.yaml` file. Below are the environment variables supported by the plugin:
 
-- **AWS_BUCKET**: Specifies the S3 bucket name where registry files are stored.
-- **AWS_KEY_PREFIX**: Allows specifying a prefix to be added to all keys stored in the bucket, useful for namespacing within the bucket.
-- **AWS_ENDPOINT**: Sets the endpoint URL for the S3 API, useful for using S3-compatible services like MinIO.
-- **AWS_REGION**: Defines the AWS region where your S3 bucket is located.
-- **AWS_ACCESS_KEY_ID**: Your AWS access key ID for authentication.
-- **AWS_SECRET_ACCESS_KEY**: Your AWS secret access key for authentication.
-- **AWS_SESSION_TOKEN**: The session token for AWS access, necessary if using temporary credentials provided by AWS Security Token Service (STS).
+- `AWS_BUCKET`: Specifies the S3 bucket name where registry files are stored.
+- `AWS_KEY_PREFIX`: Allows specifying a prefix to be added to all keys stored in the bucket, useful for namespacing within the bucket.
+- `AWS_ENDPOINT`: Sets the endpoint URL for the S3 API, useful for using S3-compatible services like MinIO.
+- `AWS_REGION`: Defines the AWS region where your S3 bucket is located.
+- `AWS_ACCESS_KEY_ID`: Your AWS access key ID for authentication.
+- `AWS_SECRET_ACCESS_KEY`: Your AWS secret access key for authentication.
+- `AWS_SESSION_TOKEN`: The session token for AWS access, necessary if using temporary credentials provided by AWS Security Token Service (STS).
 
 These environment variables can be set in your system's environment settings or included in a `.env` file, depending on your deployment setup. Make sure to keep your AWS access keys and session tokens secure and do not expose them in public code repositories.
 
 Here is an example of how you might set these variables in a `.env` file:
 
-\```plaintext
+```plaintext
 AWS_BUCKET=fleetbase-registry
 AWS_KEY_PREFIX=flb
 AWS_ENDPOINT=http://minio:9000
@@ -59,7 +59,7 @@ AWS_REGION=ap-southeast-1
 AWS_ACCESS_KEY_ID=foobar
 AWS_SECRET_ACCESS_KEY=1234567e
 AWS_SESSION_TOKEN=your-session-token-here
-\```
+```
 
 Ensure that the environment variables are loaded into your environment where Verdaccio runs so that they can be appropriately used by the plugin.
 
@@ -73,7 +73,7 @@ Contributions to the Fleetbase Verdaccio S3 Storage Plugin are welcome! Please r
 
 ## License
 
-This project is licensed under the AGPL v3 License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the AGPL v3 License - see the [LICENSE.md](#) file for details.
 
 ## Support
 
@@ -82,4 +82,3 @@ For support, feature requests, or any queries, please visit the [issues section]
 ## Acknowledgments
 
 - Thanks to the Verdaccio community for the extensive support and plugins ecosystem.
-- Special thanks to the contributors who help maintain and improve this plugin.
