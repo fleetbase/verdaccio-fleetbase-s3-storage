@@ -27,22 +27,22 @@ export default class S3Database implements IPluginStorage<S3Config> {
             throw new Error('s3 storage requires a bucket');
         }
 
-        this.logger.debug(
-            {
-                config: JSON.stringify(
-                    {
-                        bucket: getConfigValue('AWS_BUCKET', this.config),
-                        endpoint: getConfigValue('AWS_ENDPOINT', this.config),
-                        region: getConfigValue('AWS_REGION', this.config),
-                        accessKeyId: getConfigValue('AWS_ACCESS_KEY_ID', this.config),
-                        secretAccessKey: getConfigValue('AWS_SECRET_ACCESS_KEY', this.config),
-                    },
-                    null,
-                    4
-                ),
-            },
-            'S3 ENV/CONFIG VARS: @{config}'
-        );
+        // this.logger.debug(
+        //     {
+        //         config: JSON.stringify(
+        //             {
+        //                 bucket: getConfigValue('AWS_BUCKET', this.config),
+        //                 endpoint: getConfigValue('AWS_ENDPOINT', this.config),
+        //                 region: getConfigValue('AWS_REGION', this.config),
+        //                 accessKeyId: getConfigValue('AWS_ACCESS_KEY_ID', this.config),
+        //                 secretAccessKey: getConfigValue('AWS_SECRET_ACCESS_KEY', this.config),
+        //             },
+        //             null,
+        //             4
+        //         ),
+        //     },
+        //     'S3 ENV/CONFIG VARS: @{config}'
+        // );
 
         this.config.bucket = getConfigValue('AWS_BUCKET', this.config);
         this.config.keyPrefix = getConfigValue('AWS_KEY_PREFIX', this.config);
@@ -223,7 +223,7 @@ export default class S3Database implements IPluginStorage<S3Config> {
                         Key: `${keyPrefix}verdaccio-s3-db.json`,
                     },
                     (err, response) => {
-                        this.logger.debug({ err: JSON.stringify(err, null, 4), response: JSON.stringify(response, null, 4) }, 's3: [_getData] Err: @{err} Response: @{response}');
+                        // this.logger.debug({ err: JSON.stringify(err, null, 4), response: JSON.stringify(response, null, 4) }, 's3: [_getData] Err: @{err} Response: @{response}');
                         if (err) {
                             const s3Err: VerdaccioError = convertS3Error(err);
                             this.logger.error({ err: s3Err.message }, 's3: [_getData] err: @{err}');
