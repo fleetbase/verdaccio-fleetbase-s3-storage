@@ -1,6 +1,6 @@
 {
     "name": "@fleetbase/verdaccio-fleetbase-s3-storage",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "description": "AWS S3 storage implementation for Verdaccio modified for Fleetbase extensions.",
     "keywords": [
         "fleetbase",

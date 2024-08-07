@@ -169,6 +169,7 @@ export default class S3Database implements IPluginStorage<S3Config> {
     }
 
     public async getAsync(): Promise<string[]> {
+        this.logger.debug('s3: [getAsync]');
         return new Promise((resolve, reject) => {
             this.get((err, data) => {
                 if (err) {
@@ -212,6 +213,7 @@ export default class S3Database implements IPluginStorage<S3Config> {
     }
 
     private async _getData(): Promise<LocalStorage> {
+        this.logger.debug({ localData: this._localData }, 's3: [getAsync] localData: @{localData}');
         if (!this._localData) {
             this._localData = await new Promise((resolve, reject): void => {
                 const { bucket, keyPrefix } = this.config;
@@ -244,7 +246,7 @@ export default class S3Database implements IPluginStorage<S3Config> {
                 );
             });
         } else {
-            this.logger.trace('s3: [_getData] already exist');
+            this.logger.debug('s3: [_getData] already exist');
         }
 
         return this._localData as LocalStorage;
@@ -353,6 +355,9 @@ export default class S3Database implements IPluginStorage<S3Config> {
         this.logger.debug('s3: [getAllComposerJson]');
         const composerPackages: { [packageName: string]: any } = {};
 
+        // Reset _localData
+        this._localData = null;
+
         // Use the new getAsync method
         const packages = await this.getAsync();
 
@@ -420,7 +425,7 @@ export default class S3Database implements IPluginStorage<S3Config> {
 
         const fileName = `${nameWithoutScope}-${version}.tgz`;
         const tarballPath = this._getPackagePath(packageName, fileName);
-        const signedUrlExpireSeconds = 60 * 30;
+        const signedUrlExpireSeconds = 60 * 5;
 
         let url = this.s3.getSignedUrl('getObject', {
             Bucket: this.config.bucket,
