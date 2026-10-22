@@ -8,6 +8,11 @@ import { convertS3Error, is404Error } from './s3Errors';
 import addTrailingSlash from './addTrailingSlash';
 import getConfigValue from './getConfigValue';
 
+function isEnvFlagEnabled(name: string): boolean {
+    const value = (process.env[name] ?? '').trim().toLowerCase();
+    return value === '1' || value === 'true' || value === 'yes' || value === 'on';
+}
+
 export { S3Config };
 export default class S3Database implements IPluginStorage<S3Config> {
     public logger: Logger;
@@ -433,8 +438,12 @@ export default class S3Database implements IPluginStorage<S3Config> {
             Expires: signedUrlExpireSeconds,
         });
 
-        // temporarily modify url minio -> localhost
-        url = url.replace('minio:', 'localhost:');
+        // Local development only: when Verdaccio and MinIO run in docker compose, the signed URL
+        // points at the `minio` service hostname, which the host machine cannot resolve. Opt in
+        // with DEV_REWRITE_MINIO_HOST=1; never set this in a deployed environment.
+        if (isEnvFlagEnabled('DEV_REWRITE_MINIO_HOST')) {
+            url = url.replace('minio:', 'localhost:');
+        }
 
         return url;
     }

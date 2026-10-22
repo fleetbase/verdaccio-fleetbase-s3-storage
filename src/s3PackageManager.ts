@@ -7,7 +7,7 @@ import { HttpError } from 'http-errors';
 import { is404Error, convertS3Error, create409Error } from './s3Errors';
 import { deleteKeyPrefix } from './deleteKeyPrefix';
 import { S3Config } from './config';
-import axios from 'axios';
+import crypto from 'crypto';
 import addTrailingSlash from './addTrailingSlash';
 import os from 'os';
 import tar from 'tar';
@@ -218,7 +218,8 @@ export default class S3PackageManager implements ILocalPackageManager {
 
     public writeTarball(name: string): UploadTarball {
         const uploadStream = new UploadTarball({});
-        const tempFilePath = path.join(os.tmpdir(), `${this.safePackageName(this.packageName)}-temp-tarball.tar.gz`);
+        // Unique per call so concurrent publishes of the same package never share (and unlink) one temp file.
+        const tempFilePath = path.join(os.tmpdir(), `${this.safePackageName(this.packageName)}-${process.pid}-${Date.now()}-${crypto.randomBytes(8).toString('hex')}.tar.gz`);
         const writeStream = fs.createWriteStream(tempFilePath);
 
         uploadStream.pipe(writeStream);
@@ -361,39 +362,18 @@ export default class S3PackageManager implements ILocalPackageManager {
             })
             .createReadStream();
 
-        readStream.on('error', async (err) => {
+        readStream.on('error', (err) => {
             const error: HttpError = convertS3Error(err as AWSError);
 
-            this.logger.debug({ errorCode: error.code }, 'Package not found in S3, ERROR CODE: @{errorCode}');
-
-            if (error.code === 404) {
-                const npmUrl = `https://registry.npmjs.org/${this.packageName}/-/${name}`;
-                this.logger.debug({ npmUrl }, 'Package not found in S3, attempting to fetch from npm: @{npmUrl}');
-
-                try {
-                    const response = await axios({
-                        method: 'get',
-                        url: npmUrl,
-                        responseType: 'stream',
-                    });
-
-                    // Handle headers directly
-                    const contentLength = response.headers['content-length'];
-                    if (contentLength) {
-                        readTarballStream.emit(HEADERS.CONTENT_LENGTH, parseInt(contentLength, 10));
-                    }
-                    readTarballStream.emit('open');
-
-                    // Pipe the npm data to the readTarballStream
-                    response.data.pipe(readTarballStream);
-                } catch (npmError) {
-                    readTarballStream.emit('error', error);
-                    this.logger.error({ error: error.message }, 's3: [S3PackageManager readTarball readTarballStream event] error @{error}');
-                }
+            // A tarball that is not in the bucket is a 404. There is deliberately no fallback to
+            // the public npm registry: that masked missing uploads and could serve a third party's
+            // package under a Fleetbase name. Uplinks are configured in config.yaml, not here.
+            if (error.code === HTTP_STATUS.NOT_FOUND) {
+                this.logger.debug({ name, packageName: this.packageName }, 's3: [S3PackageManager readTarball] tarball not found: @{packageName}/@{name}');
             } else {
-                readTarballStream.emit('error', error);
                 this.logger.error({ error: error.message }, 's3: [S3PackageManager readTarball readTarballStream event] error @{error}');
             }
+            readTarballStream.emit('error', error);
         });
 
         this.logger.trace('s3: [S3PackageManager readTarball readTarballStream event] pipe');
